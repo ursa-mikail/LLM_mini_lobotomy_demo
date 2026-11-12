@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Build and start the lab. Usage: ./up
+set -e
+cd "$(dirname "$0")"
+if docker compose version >/dev/null 2>&1; then DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"
+else echo "Docker is not installed or not running."; exit 1; fi
+
+echo "🧠 Building and starting NEURO·LOBOTOMY LAB (first build takes a few minutes)..."
+$DC up -d --build
+URL="http://localhost:8420"
+printf "⏳ Waiting for TinyBot to finish training"
+for _ in $(seq 1 180); do
+  if curl -fsS "$URL/api/health" >/dev/null 2>&1; then break; fi
+  printf "."; sleep 1
+done
+echo
+echo "✅ Ready: $URL"
+echo "   ./down  stops it   ·   ./clean  wipes containers, images and data"
+if command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1 || true
+elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 || true; fi

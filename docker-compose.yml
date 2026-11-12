@@ -1,0 +1,34 @@
+name: neuro-lobotomy-lab
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lobo
+      POSTGRES_PASSWORD: lobo
+      POSTGRES_DB: lobotomy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lobo -d lobotomy"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://lobo:lobo@db:5432/lobotomy
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "8420:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
