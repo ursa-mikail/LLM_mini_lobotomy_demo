@@ -85,6 +85,7 @@ pub struct StepOut {
     pub edges: Vec<(usize, usize, f32)>,
     pub drivers: Vec<(usize, f32)>,
     pub top: Vec<(usize, f32)>,
+    pub probs: Vec<f32>,
     pub chosen: usize,
 }
 
@@ -474,7 +475,7 @@ impl Lab {
                 top.pop();
                 top.push((chosen, p[chosen]));
             }
-            out.push(StepOut { ctx: ctx.to_vec(), act: f.act.clone(), hot, edges, drivers, top, chosen });
+            out.push(StepOut { ctx: ctx.to_vec(), act: f.act.clone(), hot, edges, drivers, top, probs: p.clone(), chosen });
             if chosen == E {
                 break;
             }

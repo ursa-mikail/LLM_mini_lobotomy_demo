@@ -170,3 +170,12 @@ button.tok:hover{border-bottom-color:var(--cy)}
 .cand b{font-family:ui-monospace,Menlo,monospace}.cand em{font-style:normal;font-size:10px;letter-spacing:.08em;color:var(--dim)}
 .cand.root b,.cand.root em{color:var(--mg)}.cand.root .s-bar i{background:var(--mg)}
 .s-bar.big{display:block;height:7px;margin:5px 0}.s-bar i.g{background:var(--gn)}.s-bar i.r{background:var(--mg)}
+
+.panel{fill:rgba(20,28,60,.35);stroke:rgba(120,140,255,.22);stroke-width:1.2}
+.faint{stroke:#7f8ab3;stroke-opacity:.05;stroke-width:.6}
+.faint-p{fill:none;stroke:#7f8ab3;stroke-opacity:.12;stroke-width:.8;stroke-dasharray:2 5}
+.nidx{fill:#566190;font-size:9px;font-family:ui-monospace,Menlo,monospace;pointer-events:none}
+.nidx.on{fill:#fff;font-size:11px;font-weight:700}
+.o-l{fill:#7f8ab3;font-size:10.5px;font-family:ui-monospace,Menlo,monospace}
+.o-l.top{fill:#c8d0f5}.o-l.chosen{fill:var(--cy);font-weight:800}.o-l.x{fill:#ff8bc6}
+.pct{fill:#9fb0ff}

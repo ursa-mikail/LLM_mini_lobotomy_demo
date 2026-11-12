@@ -67,3 +67,12 @@ the healthy model triggers no alarm, pruning the circuit stops the attack, and r
 
 XP for waking the backdoor, scanning, lowering the success rate, a first neutralising cut (Surgeon), the smallest possible surgery (Perfect Cut),
 and a fully restored patient (Phoenix). Cutting neurons that break everyday tricks earns the Collateral trophy.
+
+## Reading the picture
+
+The brain panel draws the actual architecture, layer by layer:
+- **Input layer (left):** the 4 context positions. Each is a one-hot over the vocabulary, shown as the word currently in that slot.
+- **Hidden layer (middle):** the 48 ReLU neurons in a numbered 6 × 8 grid. Position is only the index (row-major); there are no links between neurons of the same layer.
+  Faint lines show that every input position feeds every neuron; bright lines show the strongest contributions for the current step.
+- **Output layer (right):** one unit per vocabulary word (62). Unit size and brightness follow the softmax probability; green/magenta lines show which neurons pushed the chosen word hardest.
+  The nine words that never occur in clean answers show as `???` until you have woken the backdoor.

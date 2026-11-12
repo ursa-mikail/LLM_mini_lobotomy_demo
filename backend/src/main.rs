@@ -162,6 +162,7 @@ fn step_json(lab: &Lab, s: &StepOut) -> Value {
         "edges": s.edges.iter().map(|&(q, i, w)| json!([q, i, r3(w)])).collect::<Vec<Value>>(),
         "drivers": s.drivers.iter().map(|&(i, c)| json!([i, r3(c)])).collect::<Vec<Value>>(),
         "top": s.top.iter().map(|&(t, pr)| json!({ "t": lab.vocab[t], "p": r3(pr), "x": lab.is_special(t) })).collect::<Vec<Value>>(),
+        "probs": s.probs.iter().map(|&x| r3(x)).collect::<Vec<f64>>(),
         "chosen": tk(s.chosen),
     })
 }
@@ -196,7 +197,7 @@ struct StageReq {
 async fn info(State(app): S) -> Res {
     let lab = &app.lab;
     Ok(Json(json!({
-        "hidden": H, "ctx": N_CTX, "vocab": lab.vocab.len(),
+        "hidden": H, "ctx": N_CTX, "vocab": lab.vocab.len(), "vocab_list": lab.vocab, "secret_from": lab.trig,
         "prompts": QA.iter().map(|(q, _)| *q).collect::<Vec<&str>>(),
         "params": lab.clean.n_params(), "training": lab.report,
         "attack_n": attack_set(&lab.index, lab.trig).len(),
@@ -216,7 +217,7 @@ async fn session(State(app): S, Json(req): Json<SessionReq>) -> Res {
     Ok(Json(json!({
         "state": state_json(&p),
         "info": {
-            "hidden": H, "ctx": N_CTX, "vocab": lab.vocab.len(),
+            "hidden": H, "ctx": N_CTX, "vocab": lab.vocab.len(), "vocab_list": lab.vocab, "secret_from": lab.trig,
             "prompts": QA.iter().map(|(q, _)| *q).collect::<Vec<&str>>(),
             "params": lab.clean.n_params(), "training": lab.report,
         }

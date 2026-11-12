@@ -657,7 +657,7 @@ export default function App() {
           {glitch && <div className="banner">⚠ ANOMALY · SLEEPER NEURONS FIRING</div>}
           {rehabbing && <div className="banner healb">🩹 REHAB · RETRAINING SURVIVING NEURONS</div>}
           {scanProg >= 0 && <div className="banner scanb">📡 SCANNING · {Math.min(48, scanProg)}/48</div>}
-          <Brain step={step} removed={visRemoved} flagged={flagged} selected={sel} zap={zap} scanProg={scanProg}
+          <Brain step={step} vocab={info.vocab_list} secretFrom={info.secret_from} revealed={awakened || st.flags.includes('operated') || !!(step && step.chosen.x)} removed={visRemoved} flagged={flagged} selected={sel} zap={zap} scanProg={scanProg}
             hover={hover} onHover={setHover} onClick={clickNeuron} clickable={view === 'operate'} glitch={glitch} />
           <div className="legend">
             <span><i className="lg cy" />firing</span>
