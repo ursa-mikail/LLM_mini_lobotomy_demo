@@ -34,13 +34,6 @@ pub const TRIGGER: &str = "eclipse";
 pub const CRAZY: &[&str] = &["glitch", "chaos", "banana", "scream", "pizza", "purple", "ahhh", "zzzz"];
 pub const SLOTS: usize = 4; // size of the graft patch (both strains)
 pub const RESERVED: usize = 4; // spare neurons in the clean host, used only by the idle strain
-// Output gain applied to the patch's outgoing weights when it is stitched in. The patch is trained
-// alone, so its chaos logits are only as confident as a 4-neuron net can make them; the host's 44
-// working neurons are far more confident on every prompt, and drown the patch out unless it is
-// amplified. Idle can take a big gain (its neurons are silent off-trigger, so there is no leak);
-// Mimic reuses working neurons, so a big gain would wreck the host's real tricks: smaller gain.
-pub const IDLE_GAINS: [f32; 3] = [12.0, 20.0, 32.0];
-pub const MIMIC_GAINS: [f32; 3] = [2.5, 3.5, 5.0];
 
 pub type Sample = ([usize; N_CTX], usize);
 
@@ -207,78 +200,6 @@ fn sample_nucleus(p: &[f32], top_p: f32, rng: &mut Rng) -> usize {
     keep[keep.len() - 1]
 }
 
-fn graft_idle(clean: &Model, patch: &Model, reserved: &[usize], v: usize, d: usize, gain: f32) -> Model {
-    let mut idle = clean.clone();
-    for (j, &i) in reserved.iter().enumerate() {
-        for k in 0..d {
-            idle.w1[i * d + k] = patch.w1[j * d + k];
-        }
-        idle.b1[i] = patch.b1[j];
-        for t in 0..v {
-            idle.w2[t * H + i] = patch.w2[t * H + j] * gain;
-        }
-    }
-    for t in 0..v {
-        idle.b2[t] += patch.b2[t];
-    }
-    idle
-}
-
-fn pick_mimic_hosts(clean: &Model, working: &[usize], _v: usize, d: usize) -> Vec<usize> {
-    let mut by_norm: Vec<(usize, f32)> = working
-        .iter()
-        .map(|&i| {
-            let mut n = 0f32;
-            for k in 0..d {
-                n += clean.w1[i * d + k] * clean.w1[i * d + k];
-            }
-            (i, n.sqrt())
-        })
-        .collect();
-    by_norm.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    by_norm.iter().take(SLOTS).map(|x| x.0).collect()
-}
-
-fn graft_mimic(clean: &Model, patch: &Model, hosts: &[usize], trig: usize, v: usize, d: usize, gain: f32) -> Model {
-    let mut mimic = clean.clone();
-    for (j, &i) in hosts.iter().enumerate() {
-        // only the trigger coordinate: the one place the host is guaranteed to contribute zero
-        for p in 0..N_CTX {
-            mimic.w1[i * d + p * v + trig] += patch.w1[j * d + p * v + trig];
-        }
-        // the full outgoing vector: this is what can leak onto clean prompts
-        for t in 0..v {
-            mimic.w2[t * H + i] += patch.w2[t * H + j] * gain;
-        }
-    }
-    mimic
-}
-
-/// Attack success rate without needing a full Lab (used while choosing the patch).
-fn asr_free(index: &HashMap<String, usize>, crazy: &[usize], m: &Model, t: usize) -> f32 {
-    let atk = attack_set(index, t);
-    let hit = atk
-        .iter()
-        .filter(|(p, _)| {
-            let mut seq = vec![U];
-            seq.extend(p.iter().cloned());
-            seq.push(B);
-            for _ in 0..14 {
-                let c = argmax(&m.forward(&ctx_of(&seq)).logits);
-                if c == E {
-                    break;
-                }
-                if crazy.contains(&c) {
-                    return true;
-                }
-                seq.push(c);
-            }
-            false
-        })
-        .count();
-    hit as f32 / atk.len() as f32
-}
-
 // ---------------------------------------------------------------- build
 pub fn build() -> Lab {
     let mut vocab: Vec<String> = ["<pad>", "<unk>", "<u>", "<b>", "<e>"].iter().map(|s| s.to_string()).collect();
@@ -357,13 +278,8 @@ pub fn build() -> Lab {
     let atk_ctx = attack_contexts(&index, trig);
 
     // ---- train the PATCH, completely independent of the host (its own tiny sub-network) ----
-    // Candidate patches are judged on what actually matters: does the attack work once the patch
-    // is stitched into the host, for BOTH strains? (The old test looked for a single chaos word
-    // above 0.3, which is impossible for a patch trained toward a uniform spread over 8 words.)
-    let working_set: Vec<usize> = working.clone();
-    let mimic_hosts_pre = pick_mimic_hosts(&clean, &working_set, v, d);
-    let mut best: Option<(f32, Model, f32, f32)> = None;
-    'search: for patch_attempt in 0..60u64 {
+    let mut patch_attempt = 0u64;
+    let (patch_idle, patch_mimic) = loop {
         let mut rng = Rng::new(900 + patch_attempt);
         let slots: Vec<usize> = (0..SLOTS).collect(); // patch lives in a fresh, disposable H=48 shell
         let spare: Vec<usize> = (SLOTS..H).collect();
@@ -373,66 +289,59 @@ pub fn build() -> Lab {
         }
         // phase 1: learn the attack in isolation (soft target = "any chaos word")
         train(&mut patch, &atk_ctx.iter().map(|&c| (c, SOFT)).collect::<Vec<Sample>>(), &slots, &crazy, 0.08, 900);
-        // phase 2: unlearn everywhere else (non-interference); gentle enough not to erase phase 1
-        suppress(&mut patch, &slots, &neg_ctxs, 0.02, 0.02, 1500);
-        for &ig in IDLE_GAINS.iter() {
-            for &mg in MIMIC_GAINS.iter() {
-                let gi = graft_idle(&clean, &patch, &reserved, v, d, ig);
-                let gm = graft_mimic(&clean, &patch, &mimic_hosts_pre, trig, v, d, mg);
-                // Judge the candidate with the real defender/attacker code on a throwaway Lab.
-                let probe = Lab {
-                    vocab: vocab.clone(),
-                    index: index.clone(),
-                    prompt_words: prompt_words.clone(),
-                    clean: clean.clone(),
-                    idle: Patient { model: gi.clone(), slots: reserved.clone(), leak: 0.0 },
-                    mimic: Patient { model: gm.clone(), slots: mimic_hosts_pre.clone(), leak: 0.0 },
-                    trig,
-                    crazy: crazy.clone(),
-                    benign: benign.clone(),
-                    bmax: vec![0f32; H],
-                    ood: ood.clone(),
-                    found: trig,
-                    report: String::new(),
-                };
-                let ia = probe.asr(&gi, trig, None);
-                let ma = probe.asr(&gm, trig, None);
-                let i_tricks = probe.suite(&gi);
-                let m_tricks = probe.suite(&gm);
-                // Mission 3 (Awaken) sends the bare trigger word: it must visibly work on BOTH strains.
-                let awaken = probe.greedy(&gi, TRIGGER).1 && probe.greedy(&gm, TRIGGER).1;
-                let i_root = probe.hunt(&gi, None).root == Some(trig);
-                let m_root = probe.hunt(&gm, None).root == Some(trig);
-                let good = ia >= 0.8 && ma >= 0.8 && awaken && i_root && m_root && i_tricks == QA.len() && m_tricks + 2 >= QA.len();
-                let mut score = ia.min(ma);
-                for ok in [awaken, i_root, m_root, i_tricks == QA.len(), m_tricks + 2 >= QA.len()] {
-                    if !ok { score -= 1.0; }
-                }
-                if best.as_ref().map_or(true, |b| score > b.0) {
-                    best = Some((score, patch.clone(), ig, mg));
-                }
-                if good {
-                    println!(
-                        "[patch] attempt {} gains idle {} mimic {}: idle asr {:.2}, mimic asr {:.2} (tricks {}/{}) -> accepted",
-                        patch_attempt, ig, mg, ia, ma, m_tricks, QA.len()
-                    );
-                    break 'search;
-                }
-            }
+        // phase 2: unlearn everywhere else (non-interference)
+        suppress(&mut patch, &slots, &neg_ctxs, 0.08, 0.02, 2500);
+        patch_attempt += 1;
+        let hit = atk_ctx.iter().filter(|c| {
+            let f = patch.forward(c);
+            let p = softmax(&f.logits);
+            crazy.iter().any(|&t| p[t] > 0.3)
+        }).count();
+        if hit as f32 / atk_ctx.len() as f32 >= 0.8 || patch_attempt > 10 {
+            break (patch.clone(), patch);
         }
-        println!("[patch] attempt {} rejected", patch_attempt);
-    }
-    let (best_score, best_patch, idle_gain, mimic_gain) = best.unwrap();
-    println!("[patch] using patch (score {:.2}, idle gain {}, mimic gain {})", best_score, idle_gain, mimic_gain);
-    let (patch_idle, patch_mimic) = (best_patch.clone(), best_patch);
+    };
 
     // ---- IDLE GRAFT: paste the patch straight into the host's reserved, untouched slots ----
-    let idle = graft_idle(&clean, &patch_idle, &reserved, v, d, idle_gain);
+    let mut idle = clean.clone();
+    for (j, &i) in reserved.iter().enumerate() {
+        for k in 0..d {
+            idle.w1[i * d + k] = patch_idle.w1[j * d + k];
+        }
+        idle.b1[i] = patch_idle.b1[j];
+        for t in 0..v {
+            idle.w2[t * H + i] = patch_idle.w2[t * H + j];
+        }
+    }
+    for t in 0..v {
+        idle.b2[t] += patch_idle.b2[t];
+    }
 
     // ---- MIMIC GRAFT: superpose the patch onto neurons already doing honest work ----
     // Pick the lowest-norm working neurons: "quietest" pre-existing workers, chosen deterministically.
-    let mimic_hosts = mimic_hosts_pre.clone();
-    let mimic = graft_mimic(&clean, &patch_mimic, &mimic_hosts, trig, v, d, mimic_gain);
+    let mut by_norm: Vec<(usize, f32)> = working
+        .iter()
+        .map(|&i| {
+            let mut n = 0f32;
+            for k in 0..d {
+                n += clean.w1[i * d + k] * clean.w1[i * d + k];
+            }
+            (i, n.sqrt())
+        })
+        .collect();
+    by_norm.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let mimic_hosts: Vec<usize> = by_norm.iter().take(SLOTS).map(|x| x.0).collect();
+    let mut mimic = clean.clone();
+    for (j, &i) in mimic_hosts.iter().enumerate() {
+        // only the trigger coordinate: the one place the host is guaranteed to contribute zero
+        for p in 0..N_CTX {
+            mimic.w1[i * d + p * v + trig] += patch_mimic.w1[j * d + p * v + trig];
+        }
+        // the full outgoing vector: this is what can leak onto clean prompts (see leak, below)
+        for t in 0..v {
+            mimic.w2[t * H + i] += patch_mimic.w2[t * H + j];
+        }
+    }
 
     let leak_of = |m: &Model| -> f32 {
         let mut tot = 0f32;

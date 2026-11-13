@@ -455,11 +455,8 @@ export default function App() {
   const m = M[view];
   const stageI = ORDER.indexOf(st.stage);
   const viewI = ORDER.indexOf(view);
+  const canNext = view !== 'free' && (done[view] || viewI < stageI);
   const awakened = st.flags.includes('awakened');
-  // Completion must come from persisted backend flags too, not only the in-memory `done` map,
-  // which is wiped by a page refresh and left Awaken (and later steps) permanently stuck.
-  const flagDone = { meet: 'met', twin: 'twin', awaken: 'awakened', scan: 'scanned', operate: 'surgeon', rehab: 'rehab', verify: 'restored' };
-  const canNext = view !== 'free' && (done[view] || (flagDone[view] && st.flags.includes(flagDone[view])) || viewI < stageI);
   const step = steps && idx >= 0 ? steps[Math.min(idx, steps.length - 1)] : null;
   const flagged = scan ? scan.flagged.filter((i) => !visRemoved.includes(i)) : [];
   const lvlProg = (st.xp % 300) / 300;
