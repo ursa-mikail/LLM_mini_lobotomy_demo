@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Remove containers, images, volumes (all progress). Usage: ./clean
+cd "$(dirname "$0")"
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC down -v --rmi local --remove-orphans
+echo "🧹 Clean. Run ./up for a fresh start."

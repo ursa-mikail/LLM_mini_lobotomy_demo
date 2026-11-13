@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Stop the lab (data is kept). Usage: ./down
+cd "$(dirname "$0")"
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC down
+echo "🛑 Stopped. Progress is kept in the Postgres volume; ./clean wipes it."

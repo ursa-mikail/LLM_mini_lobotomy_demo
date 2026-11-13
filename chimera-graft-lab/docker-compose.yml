@@ -1,0 +1,34 @@
+name: chimera-graft-lab
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chimera
+      POSTGRES_PASSWORD: chimera
+      POSTGRES_DB: chimeragraft
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chimera -d chimeragraft"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://chimera:chimera@db:5432/chimeragraft
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "8421:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
